@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📁 DriveVault - Family Organizer</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <style>
+        :root { --bg: #f8fafc; --card: #ffffff; --text: #1f2937; --primary: #1e40af; }
+        body.dark { --bg: #0f172a; --card: #1e2937; --text: #e2e8f0; --primary: #3b82f6; }
+        body { font-family: Arial, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+        header { background: var(--primary); color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+        .tabs { display: flex; gap: 10px; margin: 15px 0; flex-wrap: wrap; }
+        .tab { padding: 12px 24px; border-radius: 9999px; cursor: pointer; font-weight: bold; }
+        .tab.active { background: var(--primary); color: white; }
+
+        .card { background: var(--card); padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin: 15px 0; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
+        th { background: #f1f5f9; }
+
+        .btn { padding: 10px 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; margin: 4px; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-success { background: #16a34a; color: white; }
+        .btn-share { background: #2563eb; color: white; }
+        .btn-danger { background: #ef4444; color: white; }
+    </style>
+</head>
+<body onload="initApp()">
+
+    <header>
+        <div>📁 DriveVault - Family Organizer</div>
+        <div>
+            <button onclick="toggleDarkMode()" style="margin-right:10px;">🌙</button>
+            <button onclick="logout()" class="btn btn-danger">Logout</button>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="tabs" id="personTabs">
+            <button class="tab active" onclick="switchPerson('murali')">👨 Murali Kini</button>
+            <button class="tab" onclick="switchPerson('leena')">👩 Leena Kini</button>
+        </div>
+
+        <button class="btn btn-primary" onclick="showAddForm()">+ Add New Document</button>
+
+        <div class="card">
+            <h3 id="currentTitle">👨 Murali's Documents</h3>
+            <div id="documentList"></div>
+        </div>
+    </div>
+
+    <!-- Add Document Form -->
+    <div id="addForm" style="display:none; background:#f8fafc; padding:25px; border-radius:12px; margin:20px 0;">
+        <h3>Add New Document</h3>
+        <div class="form-grid">
+            <div class="form-group"><label>Category</label>
+                <select id="category">
+                    <option value="Health">Health</option>
+                    <option value="Finance">Finance</option>
+                    <option value="Career">Career</option>
+                    <option value="Work">Work</option>
+                    <option value="Important Docs">Important Docs</option>
+                    <option value="Others">Others</option>
+                </select>
+            </div>
+            <div class="form-group"><label>Document Name</label><input type="text" id="docName" placeholder="e.g. PAN Card"></div>
+            <div class="form-group"><label>Google Drive Share Link</label><input type="text" id="driveLink" placeholder="Paste shareable link here"></div>
+            <div class="form-group"><label>Description (Optional)</label><input type="text" id="description"></div>
+        </div>
+        <button class="btn btn-primary" onclick="saveDocument()">Save Document</button>
+        <button class="btn btn-danger" onclick="hideAddForm()">Cancel</button>
+    </div>
+
+    <!-- View Modal -->
+    <div id="viewModal" class="modal">
+        <div class="modal-content">
+            <h3 id="modalTitle"></h3>
+            <div id="modalBody"></div>
+            <br>
+            <button class="btn btn-danger" onclick="closeModal()">Close</button>
+        </div>
+    </div>
+
+    <script>
+        const firebaseConfig = {
+          apiKey: "AIzaSyBcy985RTDiohuTBR59EY6enkPlCH_JA_A",
+          authDomain: "docvault-b944a.firebaseapp.com",
+          projectId: "docvault-b944a",
+          storageBucket: "docvault-b944a.firebasestorage.app",
+          messagingSenderId: "709408899087",
+          appId: "1:709408899087:web:5e44724646882f2415637a"
+        };
+
+        const app = firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        let currentPerson = 'murali';
+
+        function initApp() {
+            loadDarkMode();
+            loadDocuments();
+        }
+
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark');
+            localStorage.setItem('darkMode', document.body.classList.contains('dark'));
+        }
+
+        function loadDarkMode() {
+            if (localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark');
+        }
+
+        function switchPerson(person) {
+            currentPerson = person;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab')[person === 'murali' ? 0 : 1].classList.add('active');
+            document.getElementById('currentTitle').textContent = person === 'murali' ? "👨 Murali's Documents" : "👩 Leena's Documents";
+            loadDocuments();
+        }
+
+        async function saveDocument() {
+            const name = document.getElementById('docName').value.trim();
+            const link = document.getElementById('driveLink').value.trim();
+            const category = document.getElementById('category').value;
+            const description = document.getElementById('description').value.trim();
+
+            if (!name || !link) return alert("Document Name and Google Drive Link are required!");
+
+            await db.collection('driveDocuments').add({
+                person: currentPerson,
+                name: name,
+                category: category,
+                driveLink: link,
+                description: description,
+                createdAt: new Date().toISOString()
+            });
+
+            alert("✅ Document saved successfully!");
+            hideAddForm();
+            loadDocuments();
+        }
+
+        function showAddForm() {
+            document.getElementById('addForm').style.display = 'block';
+            document.getElementById('docName').focus();
+        }
+
+        function hideAddForm() {
+            document.getElementById('addForm').style.display = 'none';
+        }
+
+        async function loadDocuments() {
+            const { docs } = await db.collection('driveDocuments')
+                .where('person', '==', currentPerson)
+                .orderBy('createdAt', 'desc')
+                .get();
+
+            let html = '<table><thead><tr><th>Category</th><th>Document Name</th><th>Description</th><th>Actions</th></tr></thead><tbody>';
+            
+            docs.forEach(doc => {
+                const d = doc.data();
+                html += `
+                    <tr>
+                        <td><strong>${d.category}</strong></td>
+                        <td>${d.name}</td>
+                        <td>${d.description || '-'}</td>
+                        <td>
+                            <button class="btn btn-primary" onclick="viewDocument('${doc.id}', '${d.driveLink}', '${d.name}')">View</button>
+                            <button class="btn btn-danger" onclick="deleteDocument('${doc.id}')">Delete</button>
+                        </td>
+                    </tr>`;
+            });
+            html += '</tbody></table>';
+            document.getElementById('documentList').innerHTML = html || '<p>No documents yet. Add some using the button above.</p>';
+        }
+
+        function viewDocument(id, link, name) {
+            let viewLink = link;
+            if (link.includes('/file/d/')) {
+                const fileId = link.split('/file/d/')[1].split('/')[0];
+                viewLink = `https://drive.google.com/uc?id=${fileId}`;
+            }
+
+            const shareText = `${name} - ${link}`;
+
+            const body = `
+                <p><strong>Name:</strong> ${name}</p>
+                <p><strong>Link:</strong> <a href="${link}" target="_blank">Open in Google Drive</a></p>
+                ${viewLink ? `<img src="${viewLink}" style="max-width:100%; border-radius:8px; margin:10px 0;">` : ''}
+                <br>
+                <a href="${link}" target="_blank" class="btn btn-primary">📂 Open Original</a>
+                <a href="https://wa.me/?text=${encodeURIComponent(shareText)}" target="_blank" class="btn btn-share">📱 WhatsApp</a>
+                <a href="mailto:?subject=${encodeURIComponent(name)}&body=${encodeURIComponent(shareText)}" class="btn btn-primary">✉️ Email</a>
+            `;
+
+            document.getElementById('modalTitle').textContent = name;
+            document.getElementById('modalBody').innerHTML = body;
+            document.getElementById('viewModal').style.display = 'block';
+        }
+
+        async function deleteDocument(id) {
+            if (confirm("Delete this document record? (File remains safe in Google Drive)")) {
+                await db.collection('driveDocuments').doc(id).delete();
+                loadDocuments();
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('viewModal').style.display = 'none';
+        }
+
+        function logout() {
+            if (confirm("Logout?")) location.reload();
+        }
+    </script>
+</body>
+</html>
